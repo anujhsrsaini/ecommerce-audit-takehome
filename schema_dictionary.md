@@ -1,215 +1,305 @@
-# Schema Dictionary — Aura Enterprise Technologies Database
+# Schema Dictionary — Meridian Enterprise Technologies Database
 
-**Database File:** `enterprise_audit.duckdb`  
-**Time Horizon:** 15 calendar months (October 1, 2024 through December 31, 2025)  
-**Total Records:** ~1.8 Million rows across 8 relational tables
+**Database File:** `enterprise_forensic_audit.duckdb`  
+**Time Horizon:** 13 calendar months (December 1, 2024 through December 31, 2025)  
+**Total Records:** ~2.55 Million rows across 11 tables
 
 ---
 
 ## Architecture Overview
 
-The database models four decoupled enterprise systems operating asynchronously:
-1. **Billing & Payment Processor (Stripe):** `billing_events` (Strict UTC timestamps)
-2. **Accrual ERP & Order Ledger (NetSuite):** `erp_orders`, `erp_order_lines` (Local Eastern Business Time `America/New_York`)
-3. **Logistics Telematics & WMS (Manhattan Associates):** `wms_fulfillment`, `wms_package_scans` (Strict UTC timestamps)
-4. **Customer Master Data Management (MDM):** `customer_accounts`, `buyer_profiles`, `customer_identity_mappings` (Strict UTC timestamps)
+The database models five decoupled enterprise systems operating asynchronously:
+
+1. **Billing & Payment Gateway (Stripe / Treasury):** `payment_events` (strict UTC timestamps), `foreign_exchange_rates` (daily rates), `treasury_settlements` (daily bank clearing batches)
+2. **Accrual ERP & Financial Ledger (NetSuite / SAP):** `erp_order_headers`, `erp_order_line_items` (local Eastern Business Time `America/New_York`), `erp_general_ledger_entries` (double-entry journals)
+3. **Logistics Telematics & 3PL (Manhattan WMS & EDI 214):** `wms_fulfillment_consignments`, `carrier_telematics_scans` (strict UTC timestamps)
+4. **Customer Identity Graph (Rudderstack / Dun & Bradstreet):** `customer_entity_mappings`, `corporate_tax_entities` (strict UTC timestamps)
+5. **Corporate Finance Reporting Mart:** `bi_executive_daily_recon` (pre-built daily summary maintained by Corporate Finance for executive dashboards)
 
 ---
 
-## Table 1: `billing_events`
+## Table 1: `payment_events`
+
 - **Domain:** Payment Gateway & Merchant Acquiring (Stripe)
-- **Grain:** 1 row per atomic payment event / webhook message received from the payment processor.
+- **Record Count:** ~326,247 rows
+- **Record Level:** 1 row per atomic payment gateway event / webhook message received from the payment processor.
 - **Primary Key:** `event_id` (`VARCHAR`)
 - **Temporal Zone:** `TIMESTAMPTZ` (UTC)
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
 | `event_id` | `VARCHAR` | Primary Key. UUID identifier of the gateway event. |
-| `event_type` | `VARCHAR` | Event type: `payment_intent.created`, `charge.authorized`, `charge.captured`, `charge.refunded`, `dispute.created`, `dispute.funds_withdrawn`, `processor.fee_credit`. |
+| `event_type` | `VARCHAR` | Event type: `payment_intent.created`, `charge.authorized`, `charge.captured`, `dispute.created`, `reserve.released`. |
 | `payment_intent_id` | `VARCHAR` | Correlation ID grouping all lifecycle events for a checkout attempt (e.g. `pi_3M...`). |
 | `charge_id` | `VARCHAR` | Unique transaction ID assigned upon authorization / capture (e.g. `ch_2K...`). |
-| `order_id` | `VARCHAR` | Commercial order reference passed in metadata (e.g. `SO-2024-001429`). |
-| `customer_account_id` | `VARCHAR` | Account ID passed in merchant metadata. |
+| `order_id` | `VARCHAR` | Commercial order reference passed in merchant metadata. |
+| `subsidiary_account_id` | `VARCHAR` | Purchasing account ID passed in merchant metadata. |
 | `event_timestamp_utc` | `TIMESTAMPTZ` | Microsecond UTC timestamp when the payment gateway processed the event. |
-| `currency` | `VARCHAR` | Currency code (`USD`). |
-| `amount_gross` | `DOUBLE` | Gross transaction value. Positive for captures/credits; negative for refunds and disputes. |
+| `currency` | `VARCHAR` | Transaction currency (`USD`, `EUR`, `GBP`, `CAD`). |
+| `amount_gross` | `DOUBLE` | Gross transaction value. Positive for captures; negative for refunds and disputes. |
 | `processing_fee` | `DOUBLE` | Fee charged by the gateway. Calculated via merchant fee tier schedules. |
 | `amount_net` | `DOUBLE` | Net liquidity impact before reserve withholdings: `amount_gross - processing_fee`. |
-| `fee_schedule_tier` | `VARCHAR` | Tier applied: `STANDARD_BLENDED` (2.9% + $0.30), `ENTERPRISE_INTERCHANGE_PLUS`, `DISPUTE_FEE` ($15.00). |
-| `risk_reserve_rate` | `DOUBLE` | Rolling risk reserve rate (0.0500 = 5.0% holdback on gross captures). |
-| `risk_reserve_hold_amount` | `DOUBLE` | Cash withheld from immediate bank settlement: `ROUND(amount_gross * 0.05, 2)`. |
-| `risk_reserve_release_date`| `DATE` | Exactly `DATE(event_timestamp_utc) + INTERVAL 90 DAYS` for captures. |
-| `settlement_status` | `VARCHAR` | Status: `PENDING_CLEARING`, `SETTLED`, `WITHHELD_IN_RESERVE`, `CHARGEBACK_DEBITED`. |
+| `fee_schedule_tier` | `VARCHAR` | Tier applied: `STANDARD_BLENDED`, `RESERVE_RELEASE`, `DISPUTE_FEE`. |
+| `risk_reserve_rate` | `DOUBLE` | Rolling risk reserve rate applied to gross captures. |
+| `risk_reserve_hold_amount` | `DOUBLE` | Cash withheld from immediate bank settlement on captures. |
+| `risk_reserve_release_date` | `TIMESTAMP` | Date the withheld reserve becomes eligible for release back to the operating account. |
+| `settlement_status` | `VARCHAR` | Status: `PENDING_CLEARING`, `SETTLED`, `CHARGEBACK_DEBITED`. |
 | `settlement_batch_id` | `VARCHAR` | Bank payout batch deposit reference (e.g. `po_batch_0042`). |
-| `settlement_date_utc` | `DATE` | T+2 clearing date for net liquid bank deposits. |
-| `failure_reason` | `VARCHAR` | Reason code for declined payments (if applicable). |
-| `dispute_reason` | `VARCHAR` | Chargeback dispute reason (e.g. `fraudulent_unrecognized`). |
-| `dispute_status` | `VARCHAR` | Dispute state (`UNDER_REVIEW`, `WON`, `LOST`). |
+| `settlement_date_utc` | `TIMESTAMP` | Clearing date for net liquid bank deposits. |
+| `failure_reason` | `INTEGER` | Numeric reason code for declined payments (if applicable). |
+| `dispute_reason` | `VARCHAR` | Chargeback dispute reason. |
+| `dispute_status` | `VARCHAR` | Dispute state. |
 | `idempotency_key` | `VARCHAR` | Client idempotency key preventing duplicate processing. |
+| `fx_applied_rate` | `DOUBLE` | Exchange rate applied to convert the transaction into USD settlement. |
 
 ---
 
-## Table 2: `erp_orders`
+## Table 2: `foreign_exchange_rates`
+
+- **Domain:** Treasury FX Reference Data
+- **Record Count:** ~1,460 rows (365 days × 4 currencies)
+- **Record Level:** 1 row per currency per calendar day.
+- **Temporal Zone:** `DATE` (calendar day)
+- **Date Range:** January 1, 2025 through December 31, 2025
+
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `rate_date` | `DATE` | Calendar date the rates apply to. |
+| `currency_code` | `VARCHAR` | Currency code: `USD`, `EUR`, `GBP`, `CAD`. |
+| `spot_rate_to_usd` | `DOUBLE` | Published market spot rate to USD for the date. |
+| `corporate_budget_rate_to_usd` | `DOUBLE` | Fixed corporate planning rate to USD set at annual budgeting. |
+| `realized_settlement_rate_to_usd` | `DOUBLE` | Actual rate realized when cross-currency funds settled into the USD operating account. |
+| `rate_source` | `VARCHAR` | Rate publisher / feed source. |
+
+---
+
+## Table 3: `treasury_settlements`
+
+- **Domain:** Corporate Treasury & Bank Clearing (Barclays operating account)
+- **Record Count:** ~362 rows
+- **Record Level:** 1 row per daily bank clearing batch deposited to the operating account.
+- **Primary Key:** `settlement_batch_id` (`VARCHAR`)
+- **Temporal Zone:** `TIMESTAMP` (UTC)
+- **Date Range:** January 2, 2025 through December 31, 2025
+
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `settlement_batch_id` | `VARCHAR` | Primary Key. Bank payout batch deposit reference. |
+| `settlement_date_utc` | `TIMESTAMP` | UTC date the batch cleared into the operating account. |
+| `destination_account` | `VARCHAR` | Destination operating account identifier. |
+| `currency` | `VARCHAR` | Settlement currency (`USD`). |
+| `gross_cleared_amount` | `DOUBLE` | Gross captured funds cleared in the batch. |
+| `processing_fees_amount` | `DOUBLE` | Merchant processing fees netted out of the batch. |
+| `risk_reserve_held_amount` | `DOUBLE` | Risk reserve cash withheld from the batch. |
+| `risk_reserve_released_amount` | `DOUBLE` | Previously withheld reserves released into the batch. |
+| `dispute_clawback_amount` | `DOUBLE` | Dispute chargebacks and penalties debited from the batch. |
+| `fx_settlement_drift_amount` | `DOUBLE` | Realized foreign-exchange settlement adjustments in the batch. |
+| `net_liquidity_amount` | `DOUBLE` | Net liquid cash deposited: cleared funds less fees, holds, clawbacks, and FX adjustments, plus released reserves. |
+
+---
+
+## Table 4: `erp_general_ledger_entries`
+
+- **Domain:** Double-Entry General Ledger (NetSuite ERP)
+- **Record Count:** ~831,245 rows
+- **Record Level:** 1 row per journal line within a balanced journal voucher. Debits and credits within each `journal_voucher_id` balance to zero.
+- **Primary Key:** `journal_line_id` (`VARCHAR`)
+- **Temporal Zone:** `TIMESTAMP` (naive; fiscal calendar)
+- **Date Range:** December 1, 2024 through December 31, 2025
+
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `journal_voucher_id` | `VARCHAR` | Balanced journal voucher grouping debit and credit lines. |
+| `journal_line_id` | `VARCHAR` | Primary Key. Unique journal line identifier. |
+| `entry_date` | `TIMESTAMP` | Posting date of the journal line. |
+| `fiscal_period` | `VARCHAR` | Fiscal period label (e.g. `2025-01`). |
+| `account_code` | `VARCHAR` | Chart of accounts code: `1010` Cash in Transit, `1100` Accounts Receivable, `1150` Risk Reserve Receivable, `1200` Finished Goods Inventory, `4000` Product Revenue, `4100` Dispute Chargeback Losses, `5000` Cost of Goods Sold, `6100` Merchant Processing Fees, `6200` FX Settlement Loss. |
+| `account_name` | `VARCHAR` | Chart of accounts name matching `account_code`. |
+| `debit_amount` | `DOUBLE` | Debit posting amount (0.00 on credit lines). |
+| `credit_amount` | `DOUBLE` | Credit posting amount (0.00 on debit lines). |
+| `currency` | `VARCHAR` | Posting currency. |
+| `order_id` | `VARCHAR` | Commercial order reference, where the entry is order-attributable. |
+| `source_system` | `VARCHAR` | Originating system (`NETSUITE_ERP`). |
+| `memo` | `VARCHAR` | Posting memo / narrative. |
+
+---
+
+## Table 5: `erp_order_headers`
+
 - **Domain:** Accrual ERP Sales Order Ledger (NetSuite)
-- **Grain:** 1 row per commercial order booking.
-- **Primary Key:** `order_id` (`VARCHAR`, e.g. `SO-2024-081294`)
-- **Temporal Zone:** `TIMESTAMP` (Stored in local Eastern Time `America/New_York`)
+- **Record Count:** ~125,130 rows
+- **Record Level:** 1 row per commercial order booking.
+- **Primary Key:** `order_id` (`VARCHAR`)
+- **Temporal Zone:** `TIMESTAMP` (stored in local Eastern Business Time; see `order_timezone`)
+- **Date Range:** December 2024 through December 2025
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
 | `order_id` | `VARCHAR` | Primary Key. Commercial Sales Order Number. |
-| `customer_account_id` | `VARCHAR` | Foreign Key to `customer_accounts.account_id`. |
-| `buyer_profile_id` | `VARCHAR` | Foreign Key to `buyer_profiles.buyer_id` (NULL for guest orders). |
-| `guest_checkout_token` | `VARCHAR` | Session checkout tracking token (resolvable in `customer_identity_mappings`). |
-| `order_status` | `VARCHAR` | Order lifecycle: `PENDING_APPROVAL`, `APPROVED`, `FULFILLED`, `CANCELLED`, `CLOSED`. |
-| `payment_method` | `VARCHAR` | Payment terms: `CREDIT_CARD`, `ACH_TRANSFER`, `NET30_INVOICE`, `NET60_INVOICE`. |
-| `payment_intent_ref` | `VARCHAR` | Processor reference linking to `billing_events.payment_intent_id`. |
+| `subsidiary_account_id` | `VARCHAR` | Purchasing subsidiary account placing the order. |
+| `parent_tax_entity_id` | `VARCHAR` | Ultimate parent corporate entity (FK to `corporate_tax_entities`). |
+| `buyer_user_id` | `VARCHAR` | Authorized buyer user placing the order. |
+| `session_cookie_token` | `VARCHAR` | Web checkout session token (resolvable in `customer_entity_mappings`). |
+| `order_status` | `VARCHAR` | Order lifecycle: `PENDING_FULFILLMENT`, `IN_TRANSIT`, `FULFILLED`, `CANCELLED`, `DISPUTED`. |
+| `payment_terms` | `VARCHAR` | Payment terms: `CREDIT_CARD_PREPAID`, `NET30`, `NET60`, `WIRE_TRANSFER`, `WARRANTY_COMP`. |
 | `booking_timestamp_local` | `TIMESTAMP` | Booking timestamp in Eastern Business Time (`America/New_York`). |
 | `order_timezone` | `VARCHAR` | Wall-clock timezone (`America/New_York`). |
-| `currency` | `VARCHAR` | Functional currency (`USD`). |
-| `gross_subtotal_amount` | `DOUBLE` | Sum of line catalog prices before discounts: `SUM(extended_gross_amount)`. |
-| `promotional_discount_amount`| `DOUBLE`| Contractual or promotional discounts applied. |
+| `currency` | `VARCHAR` | Order currency (`USD`, `EUR`, `GBP`, `CAD`). |
+| `original_currency_amount` | `DOUBLE` | Order total in the original order currency. |
+| `gross_subtotal_amount` | `DOUBLE` | Sum of line catalog prices before discounts. |
+| `msa_discount_amount` | `DOUBLE` | Pre-negotiated master service agreement discount applied. |
+| `promo_voucher_amount` | `DOUBLE` | Promotional / appeasement voucher amount applied at checkout. |
+| `voucher_code` | `VARCHAR` | Voucher code redeemed on the order (NULL if none). |
+| `net_order_total_amount` | `DOUBLE` | Invoiced total after discounts and vouchers, before tax and shipping. |
 | `tax_amount` | `DOUBLE` | State and local sales tax accrued (0.00 for tax-exempt B2B buyers). |
 | `shipping_charged_amount` | `DOUBLE` | Shipping fee charged to customer (may differ from actual carrier freight cost). |
-| `net_order_total_amount` | `DOUBLE` | Invoiced total: `gross_subtotal - promotional_discount + tax + shipping_charged`. |
-| `cancellation_reason` | `VARCHAR` | `CUSTOMER_REQUEST_PRE_PACK`, `CUSTOMER_REQUEST_POST_PACK`, `PAYMENT_FAILED`. |
-| `cancelled_at_local` | `TIMESTAMP` | Eastern timestamp when order was cancelled. |
-| `closed_at_local` | `TIMESTAMP` | Eastern timestamp when accounting period was closed for this order. |
+| `cancellation_reason` | `VARCHAR` | `BUYER_REQUEST_PREPACK`, `CUSTOMER_REQUEST_POST_PACK` (NULL if not cancelled). |
+| `cancelled_at_local` | `TIMESTAMP` | Eastern timestamp when the order was cancelled. |
+| `closed_at_local` | `TIMESTAMP` | Eastern timestamp when the accounting period was closed for this order. |
 
 ---
 
-## Table 3: `erp_order_lines`
+## Table 6: `erp_order_line_items`
+
 - **Domain:** Line Item & Revenue Recognition Ledger (NetSuite)
-- **Grain:** 1 row per SKU line item within an order.
-- **Primary Key:** `order_line_id` (`VARCHAR`, e.g. `SO-2024-081294-01`)
-- **Foreign Keys:** `order_id` (FK to `erp_orders.order_id`), `sku_id`.
+- **Record Count:** ~131,084 rows
+- **Record Level:** 1 row per SKU line item within an order.
+- **Primary Key:** `order_line_id` (`VARCHAR`, formatted as `{order_id}-{line_number:02d}`)
+- **Foreign Keys:** `order_id` (FK to `erp_order_headers.order_id`), `sku_id`.
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
 | `order_line_id` | `VARCHAR` | Primary Key. Formatted as `{order_id}-{line_number:02d}`. |
-| `order_id` | `VARCHAR` | Foreign Key referencing `erp_orders.order_id`. |
-| `line_number` | `INTEGER` | 1-based sequential line index within the sales order. |
-| `sku_id` | `VARCHAR` | Stock Keeping Unit code (e.g. `SKU-ENT-0042`). |
-| `product_category` | `VARCHAR` | Category (e.g. `Enterprise Servers`, `Storage Arrays`, `Networking`). |
+| `order_id` | `VARCHAR` | Foreign Key referencing `erp_order_headers.order_id`. |
+| `line_number` | `BIGINT` | 1-based sequential line index within the sales order. |
+| `sku_id` | `VARCHAR` | Stock Keeping Unit code. |
+| `product_category` | `VARCHAR` | Category (e.g. `Enterprise Servers`, `Storage Arrays`, `Networking`, `Office Consumables`). |
 | `item_description` | `VARCHAR` | Product title. |
-| `ordered_quantity` | `INTEGER` | Quantity ordered. |
-| `cancelled_quantity` | `INTEGER` | Quantity cancelled prior to or post warehouse packaging. |
-| `fulfilled_quantity` | `INTEGER` | Quantity physically manifested and dispatched by WMS. |
-| `returned_quantity` | `INTEGER` | Quantity returned under an RMA. |
-| `unit_catalog_price` | `DOUBLE` | Standard list price per unit. |
+| `ordered_quantity` | `BIGINT` | Quantity ordered. |
+| `unit_list_price` | `DOUBLE` | Standard list price per unit. |
 | `unit_discount_amount` | `DOUBLE` | Allocated discount per unit. |
-| `unit_net_price` | `DOUBLE` | Net price per unit: `unit_catalog_price - unit_discount_amount`. |
-| `extended_gross_amount` | `DOUBLE` | `ordered_quantity * unit_catalog_price`. |
+| `unit_net_price` | `DOUBLE` | Net price per unit: `unit_list_price - unit_discount_amount`. |
+| `extended_gross_amount` | `DOUBLE` | `ordered_quantity * unit_list_price`. |
 | `extended_net_amount` | `DOUBLE` | `ordered_quantity * unit_net_price`. |
 | `unit_cogs_amount` | `DOUBLE` | Inventory Cost of Goods Sold per unit. |
 | `extended_cogs_amount` | `DOUBLE` | Total inventory COGS: `ordered_quantity * unit_cogs_amount`. |
-| `rev_rec_status` | `VARCHAR` | ASC 606 revenue status: `PENDING_DELIVERY`, `RECOGNIZED_DELIVERED`, `REVERSED_CANCELLED`, `REVERSED_RETURN`. |
-| `rev_rec_date_local` | `DATE` | Legal date revenue is recognized. Matches confirmed delivery date in WMS! |
-| `return_rma_number` | `VARCHAR` | Return Merchandise Authorization reference (e.g. `RMA-2024-0012`). |
-| `return_disposition` | `VARCHAR` | Return disposition: `RESTOCKED_A_STOCK`, `REFURBISHED_B_STOCK`, `DAMAGED_WRITE_OFF`. |
+| `rev_rec_status` | `VARCHAR` | Revenue recognition status: `PENDING_DELIVERY`, `PENDING_IN_TRANSIT`, `RECOGNIZED_DELIVERED`, `REVERSED_CANCELLED`, `REVERSED_DISPUTE`. |
+| `rev_rec_date` | `TIMESTAMP` | Legal date revenue is recognized on this line. |
+| `return_rma_number` | `VARCHAR` | Return Merchandise Authorization reference. |
+| `rma_disposition` | `VARCHAR` | Return disposition: `NO_RMA`, `REFURBISHED_RESTOCK`, `DAMAGED_WRITE_OFF`, `VENDOR_CLAIM`, `WARRANTY_RESHIP_NO_CHARGE`, `POST_PACK_DELIVERED_NO_RETURN`. |
+| `voucher_code_applied` | `VARCHAR` | Voucher code applied to this line (NULL if none). |
 
 ---
 
-## Table 4: `wms_fulfillment`
+## Table 7: `wms_fulfillment_consignments`
+
 - **Domain:** Warehouse Execution & Packaging Consignment (Manhattan WMS)
-- **Grain:** 1 row per physical package / tracking consignment dispatched from a distribution center. (Orders fulfilling from multiple DCs generate multiple fulfillment packages: split shipments).
-- **Primary Key:** `fulfillment_id` (`VARCHAR`, e.g. `FUL-081294-A`)
+- **Record Count:** ~125,000 rows
+- **Record Level:** 1 row per physical package / tracking consignment dispatched from a distribution center. Orders fulfilling from multiple facilities generate multiple consignment rows per order.
+- **Primary Key:** `consignment_id` (`VARCHAR`)
 - **Temporal Zone:** `TIMESTAMPTZ` (UTC)
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
-| `fulfillment_id` | `VARCHAR` | Primary Key. Unique package identifier. |
-| `order_id` | `VARCHAR` | Foreign Key referencing `erp_orders.order_id`. |
-| `warehouse_id` | `VARCHAR` | Origin facility: `DC-EAST-01` (Allentown, PA), `DC-WEST-02` (Reno, NV), `DC-CENTRAL-03` (Dallas, TX). |
-| `carrier_name` | `VARCHAR` | Carrier: `FEDEX`, `UPS`, `USPS`, `DHL_EXPRESS`. |
-| `service_tier` | `VARCHAR` | Service tier: `GROUND`, `2_DAY_AIR`, `OVERNIGHT_PRIORITY`, `FREIGHT_LTL`. |
+| `consignment_id` | `VARCHAR` | Primary Key. Unique package identifier. |
+| `order_id` | `VARCHAR` | Foreign Key referencing `erp_order_headers.order_id`. |
+| `carrier_code` | `VARCHAR` | Carrier: `FEDEX`, `UPS`, `USPS`, `DHL`. |
+| `warehouse_id` | `VARCHAR` | Origin facility: `DC-EAST-01`, `DC-WEST-02`, `DC-CENTRAL-03`, `DC-EU-04`. |
+| `service_tier` | `VARCHAR` | Service tier: `GROUND`, `2_DAY_AIR`. |
 | `tracking_number` | `VARCHAR` | Carrier tracking barcode number. |
 | `package_weight_lbs` | `DOUBLE` | Scale weight of carton in pounds. |
-| `package_dim_l_in` | `DOUBLE` | Package length in inches. |
-| `package_dim_w_in` | `DOUBLE` | Package width in inches. |
-| `package_dim_h_in` | `DOUBLE` | Package height in inches. |
-| `package_status` | `VARCHAR` | Package state: `ALLOCATED`, `PICKED`, `PACKED`, `DELIVERED`, `EXCEPTION_LOST`, `RETURNED_TO_ORIGIN`. |
-| `allocated_timestamp_utc`| `TIMESTAMPTZ` | UTC timestamp when inventory was allocated to wave pick. |
-| `shipped_timestamp_utc` | `TIMESTAMPTZ` | UTC timestamp when trailer departed warehouse loading dock. |
-| `delivered_timestamp_utc`| `TIMESTAMPTZ`| UTC timestamp when carrier executed final delivery scan. |
-| `actual_freight_cost` | `DOUBLE` | Actual freight cost billed by carrier to merchant (direct operational expense). |
+| `label_created_at_utc` | `TIMESTAMPTZ` | UTC timestamp when the shipping label was created. |
+| `shipped_at_utc` | `TIMESTAMPTZ` | UTC timestamp when the trailer departed the warehouse loading dock. |
+| `delivered_at_utc` | `TIMESTAMPTZ` | UTC timestamp of final delivery confirmation (NULL while undelivered). |
+| `promised_delivery_date` | `TIMESTAMP` | Contracted delivery commitment date for the consignment. |
+| `delivery_status` | `VARCHAR` | Consignment state: `DELIVERED`, `IN_TRANSIT`, `EXCEPTION_LOST`. |
+| `actual_freight_cost_usd` | `DOUBLE` | Actual freight cost billed by carrier to merchant (direct operational expense). |
 
 ---
 
-## Table 5: `wms_package_scans`
-- **Domain:** Carrier Logistics Telematics Event Stream (FedEx / UPS EDI feeds)
-- **Grain:** 1 row per physical barcode scan or telematics event.
+## Table 8: `carrier_telematics_scans`
+
+- **Domain:** Carrier Logistics Telematics Event Stream (carrier EDI feeds)
+- **Record Count:** ~621,849 rows
+- **Record Level:** 1 row per physical barcode scan or telematics event.
 - **Primary Key:** `scan_id` (`BIGINT`)
 - **Temporal Zone:** `TIMESTAMPTZ` (UTC)
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
 | `scan_id` | `BIGINT` | Primary Key. Monotonically increasing surrogate event ID. |
-| `fulfillment_id` | `VARCHAR` | Foreign Key referencing `wms_fulfillment.fulfillment_id`. |
+| `consignment_id` | `VARCHAR` | Foreign Key referencing `wms_fulfillment_consignments.consignment_id`. |
 | `tracking_number` | `VARCHAR` | Carrier tracking number scanned. |
-| `scan_event_code` | `VARCHAR` | Event: `PICK_COMPLETED`, `PACK_VERIFIED`, `CARRIER_RECEIVED`, `TRANSIT_HUB_ARRIVAL`, `OUT_FOR_DELIVERY`, `DELIVERY_CONFIRMED`, `LOST_IN_TRANSIT`, `RETURN_TO_SENDER_DELIVERED`. |
-| `scan_timestamp_utc` | `TIMESTAMPTZ` | Microsecond UTC timestamp of scanner laser read. |
-| `facility_code` | `VARCHAR` | IATA / DC code (e.g. `ABE1`, `RNO2`, `DFW3`, `ORD-HUB`). |
+| `scan_event_code` | `VARCHAR` | Event: `PICK_COMPLETE`, `PACK_VERIFIED`, `CARRIER_DOCK_RECEIPT`, `OUT_FOR_DELIVERY`, `DELIVERY_CONFIRMED`, `DELIVERY_EXCEPTION_DELAY`. |
+| `scan_timestamp_utc` | `TIMESTAMPTZ` | Microsecond UTC timestamp of scanner read. |
+| `facility_code` | `VARCHAR` | Facility code where the scan occurred. |
 | `facility_city` | `VARCHAR` | City location of scanner. |
-| `facility_state` | `VARCHAR` | State abbreviation (e.g. `PA`, `NV`, `TX`, `IL`). |
+| `facility_state` | `VARCHAR` | State abbreviation. |
 | `scan_device_id` | `VARCHAR` | Handheld scanner or conveyor optical belt ID. |
-| `exception_reason` | `VARCHAR` | Details for transit exceptions (e.g. `CARRIER_CONTAINER_BREACH_SEARCH_EXHAUSTED`). |
-| `signature_name` | `VARCHAR` | Name captured on driver delivery pad for `DELIVERY_CONFIRMED`. |
+| `exception_code` | `VARCHAR` | Machine-readable exception classification (e.g. `ERR_CARRIER_DAMAGED`, `ERR_CARRIER_LOST`, `ERR_CUSTOMS_EORI_MISSING`, `ERR_POSTCODE_TRUNCATED`; NULL when the scan is clean). |
+| `exception_details` | `VARCHAR` | Free-text details for exception scans. |
+| `operator_signature` | `INTEGER` | Operator / driver signature capture flag for delivery confirmation scans. |
 
 ---
 
-## Table 6: `customer_accounts`
-- **Domain:** Master B2B Entity Hierarchy (MDM)
-- **Grain:** 1 row per commercial enterprise parent or subsidiary account.
-- **Primary Key:** `account_id` (`VARCHAR`, e.g. `ACCT-000001`)
+## Table 9: `customer_entity_mappings`
 
-| Column Name | Type | Description |
-| :--- | :--- | :--- |
-| `account_id` | `VARCHAR` | Primary Key. Account Master Record. |
-| `parent_enterprise_id` | `VARCHAR` | Self-referencing FK to `customer_accounts.account_id` for corporate conglomerates with multiple subsidiaries. |
-| `company_name` | `VARCHAR` | Legal corporate name (e.g. `Apex Global Technologies Inc.`). |
-| `account_type` | `VARCHAR` | Segment: `ENTERPRISE`, `MID_MARKET`, `SMB`, `INDIVIDUAL_CONSUMER`. |
-| `credit_limit_amount` | `DOUBLE` | Authorized trade credit limit for invoicing terms. |
-| `payment_terms` | `VARCHAR` | Contract billing terms: `NET30`, `NET60`, `CREDIT_CARD_UPFRONT`. |
-| `contract_discount_rate` | `DOUBLE` | Negotiated agreement discount (e.g. 0.1500 = 15%). |
-| `is_tax_exempt` | `BOOLEAN` | Tax exemption status for certified B2B resellers. |
-| `account_created_at_utc`| `TIMESTAMPTZ` | Account creation timestamp. |
-| `sales_rep_id` | `VARCHAR` | Enterprise Account Executive ID. |
-
----
-
-## Table 7: `buyer_profiles`
-- **Domain:** Authorized Procurement Personnel
-- **Grain:** 1 row per individual employee / corporate buyer authorized to place orders.
-- **Primary Key:** `buyer_id` (`VARCHAR`, e.g. `BYR-000001`)
-
-| Column Name | Type | Description |
-| :--- | :--- | :--- |
-| `buyer_id` | `VARCHAR` | Primary Key. Unique buyer profile ID. |
-| `account_id` | `VARCHAR` | Foreign Key referencing `customer_accounts.account_id`. |
-| `buyer_email` | `VARCHAR` | Corporate email address. |
-| `full_name` | `VARCHAR` | Authorized buyer's full name. |
-| `job_title` | `VARCHAR` | Job title (e.g. `VP Procurement`, `IT Director`). |
-| `department` | `VARCHAR` | Department (`Infrastructure`, `R&D Operations`, `IT`). |
-| `is_procurement_admin` | `BOOLEAN` | Whether authorized to approve high-dollar purchase orders. |
-| `created_at_utc` | `TIMESTAMPTZ` | Buyer registration timestamp. |
-
----
-
-## Table 8: `customer_identity_mappings`
 - **Domain:** Cross-Device Identity Resolution Graph
-- **Grain:** 1 row per checkout session, guest token, or device touchpoint.
+- **Record Count:** ~385,000 rows
+- **Record Level:** 1 row per checkout session token / device touchpoint.
 - **Primary Key:** `mapping_id` (`BIGINT`)
+- **Temporal Zone:** `TIMESTAMPTZ` (UTC)
 
 | Column Name | Type | Description |
 | :--- | :--- | :--- |
 | `mapping_id` | `BIGINT` | Primary Key. Auto-incrementing mapping entry. |
-| `session_id` | `VARCHAR` | Web session token (e.g. `sess_88b1...`). |
-| `guest_checkout_token` | `VARCHAR` | Token assigned to unauthenticated checkout carts. |
-| `device_fingerprint_hash`| `VARCHAR` | Client device fingerprint hash. |
-| `ip_subnet_prefix` | `VARCHAR` | CIDR IP prefix. |
-| `resolved_account_id` | `VARCHAR` | Resolved corporate account ID. |
-| `resolved_buyer_id` | `VARCHAR` | Resolved authorized buyer ID. |
+| `session_cookie_token` | `VARCHAR` | Web session token (e.g. `sess_88b1...`). |
+| `buyer_user_id` | `VARCHAR` | Resolved authorized buyer user ID. |
+| `subsidiary_account_id` | `VARCHAR` | Resolved subsidiary purchasing account. |
+| `parent_tax_entity_id` | `VARCHAR` | Resolved ultimate parent corporate entity (FK to `corporate_tax_entities`). |
 | `resolution_method` | `VARCHAR` | Method: `AUTHENTICATED_LOGIN`, `DETERMINISTIC_EMAIL_MATCH`, `PROBABILISTIC_DEVICE_MATCH`, `UNRESOLVED_GUEST`. |
-| `confidence_score` | `DOUBLE` | Match confidence (1.00 = authenticated, 0.85 = email, 0.65 = device, 0.00 = guest). |
+| `confidence_score` | `DOUBLE` | Match confidence (1.00 = authenticated, lower for probabilistic matches, 0.00 = guest). |
+| `is_returning_cookie` | `BOOLEAN` | Whether the session token has been observed in more than one visit. |
 | `first_observed_utc` | `TIMESTAMPTZ` | Timestamp of first session observation. |
+| `last_observed_utc` | `TIMESTAMPTZ` | Timestamp of most recent session observation. |
+
+---
+
+## Table 10: `corporate_tax_entities`
+
+- **Domain:** Ultimate Parent Corporate Entities (Dun & Bradstreet)
+- **Record Count:** ~650 rows
+- **Record Level:** 1 row per ultimate parent corporate conglomerate (tax-identity level). Each parent groups many subsidiary purchasing accounts.
+- **Primary Key:** `parent_tax_entity_id` (`VARCHAR`)
+
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `parent_tax_entity_id` | `VARCHAR` | Primary Key. Ultimate parent entity identifier. |
+| `legal_entity_name` | `VARCHAR` | Legal corporate name (e.g. `Apex Global Technologies Inc.`). |
+| `ein` | `VARCHAR` | US Employer Identification Number. |
+| `lei` | `VARCHAR` | Global Legal Entity Identifier. |
+| `tier` | `VARCHAR` | Account tier: `STRATEGIC_ENTERPRISE`, `MID_MARKET`, `SMB`, `PROSUMER`. |
+| `msa_discount_pct` | `DOUBLE` | Pre-negotiated master service agreement discount rate (e.g. 0.20 = 20%). |
+| `domicile_country` | `VARCHAR` | Country of legal domicile. |
+| `is_retained_period` | `BOOLEAN` | Whether the entity transacted in both the base and current measurement periods. |
+| `base_period_recurring_revenue` | `DOUBLE` | Recurring revenue attributed in the base measurement period. |
+| `current_period_recurring_revenue` | `DOUBLE` | Recurring revenue attributed in the current measurement period. |
+
+---
+
+## Table 11: `bi_executive_daily_recon`
+
+- **Domain:** Corporate Finance Reporting Mart (existing BI reporting asset)
+- **Record Count:** ~364 rows (one row per calendar day)
+- **Record Level:** 1 row per calendar day summarizing order, revenue, and freight activity for executive dashboards.
+- **Primary Key:** `recon_date` (`DATE`)
+- **Maintained by:** Corporate Finance (standing daily reporting mart feeding the executive dashboard)
+
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `recon_date` | `DATE` | Primary Key. Calendar reporting date. |
+| `recon_row_count` | `BIGINT` | Number of underlying detail rows summarized for the date. |
+| `distinct_orders_touched` | `BIGINT` | Number of distinct orders contributing to the date. |
+| `certified_net_recognized_revenue` | `DOUBLE` | Finance-certified net recognized revenue for the date, as published to the executive dashboard. |
+| `total_landed_freight_cost` | `DOUBLE` | Total landed freight cost for the date, as published to the executive dashboard. |
+| `blended_gross_margin_pct` | `DOUBLE` | Blended gross margin percentage for the date, as published to the executive dashboard. |

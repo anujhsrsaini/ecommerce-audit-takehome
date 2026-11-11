@@ -1,3 +1,8 @@
+# Database uncompressed file (>100MB, auto-unzipped from .zip on script run)
+enterprise_forensic_audit.duckdb
+enterprise_audit.duckdb
+
+# Python environment & cache
 __pycache__/
 *.pyc
 *.pyo

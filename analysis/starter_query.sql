@@ -1,38 +1,31 @@
--- Starter Query: Aura Enterprise Technologies Database Audit
--- Run with: duckdb enterprise_audit.duckdb -f analysis/starter_query.sql
+-- Starter Query: Meridian Enterprise Technologies Forensic Audit
+-- Run with: duckdb enterprise_forensic_audit.duckdb -f analysis/starter_query.sql
 
 -- 1. Inspect table inventories and overall record counts
-SELECT 'billing_events' AS system_table, COUNT(*) AS total_records FROM billing_events
+SELECT 'payment_events' AS system_table, COUNT(*) AS total_records FROM payment_events
 UNION ALL
-SELECT 'erp_orders', COUNT(*) FROM erp_orders
+SELECT 'foreign_exchange_rates', COUNT(*) FROM foreign_exchange_rates
 UNION ALL
-SELECT 'erp_order_lines', COUNT(*) FROM erp_order_lines
+SELECT 'treasury_settlements', COUNT(*) FROM treasury_settlements
 UNION ALL
-SELECT 'wms_fulfillment', COUNT(*) FROM wms_fulfillment
+SELECT 'erp_general_ledger_entries', COUNT(*) FROM erp_general_ledger_entries
 UNION ALL
-SELECT 'wms_package_scans', COUNT(*) FROM wms_package_scans
+SELECT 'erp_order_headers', COUNT(*) FROM erp_order_headers
 UNION ALL
-SELECT 'customer_accounts', COUNT(*) FROM customer_accounts
+SELECT 'erp_order_line_items', COUNT(*) FROM erp_order_line_items
 UNION ALL
-SELECT 'buyer_profiles', COUNT(*) FROM buyer_profiles
+SELECT 'wms_fulfillment_consignments', COUNT(*) FROM wms_fulfillment_consignments
 UNION ALL
-SELECT 'customer_identity_mappings', COUNT(*) FROM customer_identity_mappings;
+SELECT 'carrier_telematics_scans', COUNT(*) FROM carrier_telematics_scans
+UNION ALL
+SELECT 'customer_entity_mappings', COUNT(*) FROM customer_entity_mappings
+UNION ALL
+SELECT 'corporate_tax_entities', COUNT(*) FROM corporate_tax_entities
+UNION ALL
+SELECT 'bi_executive_daily_recon', COUNT(*) FROM bi_executive_daily_recon;
 
--- 2. Preliminary financial totals by domain
-SELECT 
-    'Stripe Settled Captures' AS metric,
-    ROUND(SUM(amount_gross), 2) AS total_amount_usd
-FROM billing_events
-WHERE event_type = 'charge.captured'
-UNION ALL
-SELECT 
-    'NetSuite Booked Invoices',
-    ROUND(SUM(net_order_total_amount), 2)
-FROM erp_orders
-WHERE order_status != 'CANCELLED'
-UNION ALL
-SELECT 
-    'NetSuite Recognized GAAP Revenue (Delivered)',
-    ROUND(SUM(extended_net_amount), 2)
-FROM erp_order_lines
-WHERE rev_rec_status = 'RECOGNIZED_DELIVERED';
+-- 2. Profile the distinct lifecycle values in each operational system
+SELECT DISTINCT event_type AS payment_event_types FROM payment_events ORDER BY 1;
+SELECT DISTINCT order_status AS order_lifecycle_statuses FROM erp_order_headers ORDER BY 1;
+SELECT DISTINCT delivery_status AS consignment_delivery_statuses FROM wms_fulfillment_consignments ORDER BY 1;
+SELECT DISTINCT scan_event_code AS telematics_scan_events FROM carrier_telematics_scans ORDER BY 1;

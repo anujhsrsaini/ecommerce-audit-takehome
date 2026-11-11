@@ -1,110 +1,123 @@
-# Executive Decision Memo — Enterprise Cross-System Audit & Forensic Analytics
+# Executive Decision Memo — Enterprise Forensic Audit
 
-**To:** Board Audit Committee & Executive Leadership  
-**From:** Lead Analytics Engineer & Forensic Auditor  
-**Date:** January 14, 2026  
-**Subject:** Cross-System Ledger Reconciliation, Supply Chain Leakage & Retention Audit  
+**To:** Board Audit Committee, CEO, CFO (Vance), VP Logistics (Carvalho), VP CX (Lin), VP Growth (Ferreira)  
+**From:** Lead Analytics Engineer & Forensic Data Auditor  
+**Date:** January 15, 2026  
+**Subject:** Full-Funnel Reconciliation ($0.00 Variance), Carrier SLA Verdict, Retention & Voucher Guardrails
 
 ---
 
 ## 1. Executive Summary & Ground-Truth Scorecard
 
-Forensic audit of Aura’s four systems (Stripe, NetSuite, Manhattan WMS, Customer MDM) across 150,000 orders and ~1.8M records (Oct 2024–Dec 2025) settles all executive disputes with empirical data:
+Forensic audit of `enterprise_forensic_audit.duckdb` (11 tables, 2.55M rows, Dec 2024–Dec 2025) across Billing, ERP, WMS, Identity, and BI Mart resolves the C-suite deadlock:
 
-| Stakeholder & Hypothesis | Claimed Metric | Audited Ground Truth | Root Cause & Resolution |
+| Stakeholder & Dispute | Claimed Metric | Audited Ground Truth | Root Cause & Resolution |
 | :--- | :--- | :--- | :--- |
-| **Elena Vance (CFO):** Revenue Gap | $7.4M gap ($184.2M vs $176.8M) | **$702.34M** Stripe / **$1,163.22M** GAAP | Stripe is Card-only. Non-card terms add $561.30M. Waterfall balances to **$0.00**. |
-| **Elena Vance (CFO):** Cash Shortfall | $6.2M missing SVB cash | **$7.34M** active risk reserve in escrow | Cash intact in Stripe escrow (5% rolling holdback). Releases in 90 days. |
-| **Marcus Carvalho (Logistics):** SLA | 97.2% on-time delivery SLA | **89.28%** Order SLA / **90.32%** Pkg SLA | Grain error: evaluated `delivered/FULFILLED`; omitted lost, cancelled, and pending orders. |
-| **Marcus Carvalho (Logistics):** Leakage | Trigger-happy refund leakage | **2,404 orders / $13.30M COGS leaked** | Post-pack cancels delivered anyway; lacks WMS interlock. |
-| **Sarah Lin (CX):** RMA Defect | Scrapped hardware in restock | **12,619 lines / $31.99M COGS scrapped** | 100% of RMAs are scrap (`DAMAGED_WRITE_OFF`). Balance sheet assets inflated $31.99M. |
-| **Lucas Ferreira (Growth):** Churn | <4% retention; 90%+ one-and-done | **98.57% account repeat; 99.20% KM 1-yr** | Cookie grain error vs. resolved B2B accounts, plus right-censoring in recent cohorts. |
-| **Vikram Patel (Legal):** Invariants | ASC 606 & carrier recoveries | **$0.00 bridge; $42.69M unfiled claims** | 9,382 unfiled lost parcels. Sub-$50 orders operate at negative margin. |
+| **Elena Vance (CFO):** Rev Gap & Cash Shortfall | Charges exceed rev by >$4M; ~$2.3M missing cash; suspects fraud | **$58,420,500.00** gross ties to **$54,379,002.43** rec rev & **$56,126,000.00** cash ($0.00 unrec) | Zero fraud. Rev gap is ASC 606 delivery timing ($3.60M) & disputes ($442K). Cash delta is fees ($1.58M), reserves ($160K net), disputes ($465.5K), FX ($86.55K). |
+| **Marcus Carvalho (Logistics):** Terminate DHL | 19.18% failure rate vs 95% SLA | Headline: **19.18%** (3,836 pkgs). Carrier fault: **1.35%** (270 pkgs). Merchant bug: **17.83%** (3,566 pkgs) | Refute termination. 3,566 failures trace to internal bug `DEP-2025-07-02-ADDR-V2`. DHL genuine reliability is 98.65%. Prevents **$8.5M penalty**. |
+| **Marcus Carvalho (Logistics):** Post-Pack Cancellations | Support cancels post-pack; inventory lost | **640 orders** cancelled post-pack; **100% (640/640) delivered** | Confirmed **$1,570,560.00 leakage** ($1,472,000.00 COGS + $98,560.00 freight) on credited NET30 orders. Fix: WMS dispatch lock. |
+| **Lucas Ferreira (Growth):** 3.8% Retention Collapse | 385K tokens, 3.8% return; Q3–Q4 repeat ~0% | Logo retention: **94.62%** (615/650 parents). NDR: **124.80%** ($40M to $49.92M). Repeat: **100%** (parents), **99.96%** (subs) | Refute collapse. Lucas audited transient browser cookies, not accounts. Enterprise spend expanded +24.8% YoY (124.8% NDR). |
+| **Sarah Lin (CX) & Lucas:** Voucher Expansion | Blanket voucher expansion across escalated tickets | `APPEASE30`: **+$1,890,000.00** margin (+$54/order; 85.8% repeat). `STACKED20-MSA`: **-$7,710,000.00** EBITDA loss | Conditional approval. Expand `APPEASE30` with guardrails ($300 min). Ban promo stacking on MSA contracts to save **+$6.84M to +$7.71M** EBITDA. |
 
 ---
 
-## 2. Financial Waterfall & GAAP Revenue Reconciliation
+## 2. Revenue Recognition Bridge
 
-### Table 2.1: GAAP ASC 606 Revenue Recognition Bridge (down to $0.00 variance)
-Under ASC 606, performance obligations are satisfied upon physical transfer of control (WMS delivery scan).
+Gross charges ($58,420,500.00; 108,231 CC transactions) reconcile to recognized revenue with **$0.00 unexplained variance** under ASC 606 (delivery-based recognition):
 
-| Stage | Transaction Category | Amount (USD) | Accounting & Ledger Notes |
+| Bridge Stage | Category | Amount (USD) | Primary Source Records & Notes |
 | :--- | :--- | :--- | :--- |
-| **Gross Payment Volume** | Stripe Captured Charges | **$702,344,145.40** | 77,891 card captures in `billing_events` |
-| **Less: Sales Tax Collected** | Sales Tax on Card Orders | **-$40,437,359.45** | Balance sheet tax liability; non-revenue |
-| **Less: Customer Freight** | Shipping Charged to Buyers | **-$464,150.00** | Pass-through freight billed to buyers |
-| **Subtotal: Card Product Invoiced**| Net Invoiced Merchandise | **$661,442,635.95** | Invoiced value on credit card orders |
-| **Less: Webhook / Unfulfilled** | Pending Approval (Stuck) | **-$4,780,540.66** | 627 orders in Stripe; 0 packages manifested |
-| **Less: In-Transit / Lost Lines** | Closed Orders (Carrier Lost) | **-$21,553,292.00** | 4,907 card orders lost by carriers; delivery pending |
-| **Less: Post-Pack Cancelled** | Zombie Dispatches (Refunded) | **-$8,015,253.41** | 990 card orders refunded upon cancellation |
-| **Less: Damaged RMA Returns** | Returned Damaged Hardware | **-$25,172,130.72** | 6,475 returned lines on card orders; reversed at intake |
-| **Subtotal: Card Recognized Rev** | Credit Card Delivered Lines | **$601,921,419.16** | 147,284 delivered lines under ASC 606 |
-| **Plus: Non-Card Recognized (ACH)**| ACH Delivered Lines | **+$277,754,442.42** | 67,753 delivered lines |
-| **Plus: Non-Card Recognized (Net30)**| Net 30 Delivered Lines | **+$283,543,424.54** | 68,806 delivered lines |
-| **Audited GAAP ASC 606 Revenue** | Total Recognized Revenue | **$1,163,219,286.12** | **Balances to NetSuite Ledger ($0.00 variance)** |
+| **Starting point** | **Gross Gateway Charges** | **$58,420,500.00** | `payment_events` (`charge.captured`) / `erp_order_headers` |
+| **Less:** | Pending Warehouse Delivery | -$1,821,953.84 | `erp_order_line_items` (`PENDING_DELIVERY`, 4,477 orders) |
+| **Less:** | Pending In-Transit Delivery | -$1,777,293.73 | `erp_order_line_items` (`PENDING_IN_TRANSIT`, 4,176 orders) |
+| **Less:** | Dispute Chargeback Reversals | -$442,250.00 | `erp_order_line_items` (`REVERSED_DISPUTE`, 1,550 orders) |
+| **Audited recognized revenue** | **Recognized Delivered Revenue (CC)** | **$54,379,002.43** | `erp_order_line_items` (`RECOGNIZED_DELIVERED`, 98,028 orders) |
+| **Bridge Variance** | **Unexplained Variance** | **$0.00** | **Exact balance: $58,420,500.00 - $4,041,497.57** |
 
-### Table 2.2: Treasury Reserve & Operating Cash Waterfall (down to $0.00 variance)
-
-| Treasury Liquidity Stage | Cash Flow Impact (USD) | Operational & Banking Notes |
-| :--- | :--- | :--- |
-| **Gross Payment Collections** | **$702,344,145.40** | Gross collections across 77,891 captures |
-| **Less: Merchant Processing Fees** | **-$20,391,347.75** | Standard Blended fees (2.9% + $0.30) |
-| **Plus: Contract Fee Credit** | **+$87,412.50** | Retroactive Interchange-Plus credit (po_trueup_20250502) |
-| **Less: Customer Refunds** | **-$8,502,128.74** | 990 post-pack cancellations refunded to credit cards |
-| **Less: Dispute Chargebacks & Fees**| **-$20,810,358.52** | 2,250 disputes ($20.78M debits + $33.75K fees) |
-| **Net Settled Gateway Funds** | **$652,727,722.89** | Net gateway cash before reserve escrow |
-| **Less: Active Risk Reserve Withheld**| **-$7,335,873.31** | 5.0% rolling 90-day reserve holdback for Q4 2025 captures |
-| **Audited Liquid Net Cash (SVB)** | **$645,391,849.58** | **Liquid SVB bank deposits ($0.00 variance)** |
-
-*Fee Credit Amortization:* The $87,412.50 credit applies to Q1 2025: Jan $29,910.15; Feb $27,971.86; Mar $29,530.49 (or $7,284.38/month across FY2025).
+*Enterprise Revenue:* Total recognized revenue across all payment terms is **$105,341,799.66** (bookings: $117,391,799.66). The BI mart (`bi_executive_daily_recon`, $138.69M) is distorted by join fan-out.
 
 ---
 
-## 3. Supply Chain Leakage & Logistics SLA Audit
+## 3. Treasury Cash Waterfall
 
-- **True Delivery SLA:** Across all 150,000 orders, only **133,915 delivered without defect (89.28%)**. For 149,373 orders dispatched to WMS, SLA was **89.65%**, failing the 95.0% contractual standard. At the package grain (159,767 cartons), **90.32% delivered (144,309)**, **5.87% lost in transit (9,382)**, and **3.80% returned damaged (6,076)** across Allentown (90.30%), Dallas (90.38%), and Reno (90.29%).
-- **2-Day Air SLA Collapse:** Out of 25,822 delivered 2-Day Air packages, **only 8,672 arrived within 2 days (33.58% on-time)**; average transit was 3.01 days. 66.42% breached contractual transit time, driving support cancellations.
-- **Zombie Dispatches:** Support cancelled **2,404 orders** post-pack (`CUSTOMER_REQUEST_POST_PACK`). Lacking a WMS interlock, cartons were loaded onto trailers 2–4 hours later and delivered anyway:
-  - **Invoiced Value Lost:** **$21,879,170.75** (Line Net: $20,614,675.63).
-  - **Inventory COGS Leaked:** **$13,302,535.66** ($5.16M Card, $4.19M ACH, $3.95M Net 30).
-  - **Freight & Lost Fees:** **$83,374.02** freight + **$246,858.82** unrecovered Stripe fees.
-- **Unfiled Carrier Insurance Claims:** Carriers lost **9,382 packages** (`CARRIER_CONTAINER_BREACH_SEARCH_EXHAUSTED`):
-  - **Commercial Claim Exposure:** **$42,685,890.07** across DHL ($10.35M), UPS ($11.15M), USPS ($10.74M), and FedEx ($10.45M).
-  - **Inventory COGS:** **$27,415,394.44**; **Paid Freight:** **$325,105.81**. Zero claims filed to date.
-- **Scrapped RMA Hardware Assets:** Warehouse intake scrapped **12,619 line items ($31,990,019.02 COGS)** due to carrier transit damage. NetSuite credited inventory at cost rather than writing it off, inflating balance sheet assets by **$31.99M** (Storage Arrays: $14.34M, Servers: $8.98M, Networking: $3.96M).
+The **$2,294,500.00 cash shortfall** in Barclays Operating Account ****4821 is 100% accounted for by contractual deductions, balancing to **$0.00**:
 
----
-
-## 4. Customer Master Entity Retention & Survival Analysis
-
-- **Entity Graph Resolution:** Lucas evaluated raw guest checkout cookies (41,941 orders), where tokens appear once. Resolving accounts through the Customer MDM graph proves exceptional loyalty:
-  - **Operating Subsidiary Accounts:** **98.57% repeat purchase rate** (8,357 of 8,478 accounts repeat; 18.1 avg orders/account).
-  - **Parent Conglomerates:** **98.57% repeat purchase rate** (8,351 of 8,472 repeat). Apex Global Technologies (`ACCT-000001`) and its 6 subsidiaries placed **304 orders totaling $2.48M**.
-  - **Authorized Procurement Buyers:** **91.79% repeat purchase rate** (25,158 of 27,409 repeat; 3.9 avg orders/buyer).
-- **Kaplan-Meier Survival Analysis (Right-Censoring Correction):** Median re-order cadence is **12.4 days** (mean 21.8 days; 90th percentile 50.0 days). Recent Q3/Q4 2025 cohorts appeared to show low repeat only because calendar time had not elapsed. Kaplan-Meier survival curves controlling for right-censoring confirm durable retention:
-
-| Elapsed Time Post-First Order | Account-Level Repeat Probability | Authorized Buyer Repeat Probability |
-| :--- | :--- | :--- |
-| **Day 15** | 37.49% | 11.77% |
-| **Day 30** | 57.54% | 21.86% |
-| **Day 60** | 76.27% | 38.88% |
-| **Day 90** | 84.05% | 52.56% |
-| **Day 180** | 94.50% | 78.01% |
-| **Day 365 (1 Year)** | **99.20%** | **95.53%** |
-
----
-
-## 5. Strategic Policy Recommendations & Margin Guardrails
-
-- **Unit Economics & Appeasement Danger:**
-  - **Orders <$50 (4,820 orders):** Subtotal $37.26, COGS $17.46, freight $34.37, fee $1.11. **Contribution margin is -$16.23 (-48.1%)**; 91.5% operate at a loss.
-  - **Orders $50–$100 (6,081 orders):** Subtotal $73.35, COGS $27.74, freight $34.71, fee $1.70. **Contribution margin is $8.06 (9.6%)**.
-  - **Voucher Stress-Test:** Unconstrained $50–$250 appeasements destroy EBITDA: a $50 credit produces -$41.94 CM on a $73 order; a $250 credit creates -$194.53 to -$266.23 deficits.
-
-| Priority | Executive Owner | Action Item & Operational Mandate | Financial Impact |
+| Waterfall Stage | Category | Amount (USD) | Primary Source Records & Settlement Evidence |
 | :--- | :--- | :--- | :--- |
-| **P1** | **Marcus Carvalho & Vikram Patel** | **Deploy WMS Interlock:** Block NetSuite cancellations once status is `PACKED`. Quarantine cartons to rework lanes. | **+$13.30M COGS recovered** annually; stops zombie dispatches. |
-| **P2** | **Vikram Patel & Elena Vance** | **Execute Carrier Insurance Claims:** File claims against FedEx, UPS, DHL, USPS for 9,382 transit losses (`EXCEPTION_LOST`). | **+$42.69M cash recovery** ($27.42M COGS + $325K freight). |
-| **P3** | **Elena Vance (CFO)** | **RMA Balance Sheet Impairment:** Adjust NetSuite valuation to recognize $31.99M write-off for damaged scrap (`DAMAGED_WRITE_OFF`). | Cleanses balance sheet before external audit; resolves qualification. |
-| **P4** | **Sarah Lin & Lucas Ferreira** | **Enforce MOV Thresholds:** Require cart minimums for 20% CM: **$250 MOV for $50 voucher; $500 for $100; $1,250 for $250**. Ban vouchers on orders <$100. | Preserves **$4.2M gross margin**; stops small-order dilution. |
-| **P5** | **Marcus Carvalho (Logistics)** | **Enforce Carrier 2-Day Air SLA Clawbacks:** Audit delivery timestamps and claim freight refunds on 66.42% breached air shipments. | **+$1.85M annual freight credits** from SLA failure terms. |
+| **Starting point** | **Gross Cleared Gateway Funds** | **$58,420,500.00** | `treasury_settlements.gross_cleared_amount` (362 daily batches) |
+| **Less:** | Merchant Processing Fees | -$1,582,450.00 | `treasury_settlements.processing_fees_amount` |
+| **Less:** | Rolling Risk Reserve Withheld | -$1,280,000.00 | `treasury_settlements.risk_reserve_held_amount` (90-day hold) |
+| **Plus:** | Prior-Period Reserves Released | +$1,120,000.00 | `treasury_settlements.risk_reserve_released_amount` (4 tranches) |
+| **Less:** | Dispute Debits & Fees | -$465,500.00 | `treasury_settlements.dispute_clawback_amount` ($442.25K loss + $23.25K fees) |
+| **Less:** | Realized FX Settlement Drift | -$86,550.00 | `treasury_settlements.fx_settlement_drift_amount` (EUR, GBP, CAD) |
+| **Net liquid deposits** | **Operating Bank Cash Deposited** | **$56,126,000.00** | `treasury_settlements.net_liquidity_amount` (Ties to GL 1010) |
+| **Waterfall Variance** | **Unexplained Cash Variance** | **$0.00** | **Exact balance: $58,420,500.00 - $2,294,500.00** |
+
+*GL Proof:* Debits and credits balance across 831,245 lines ($265,397,974.09; Imbalance: **$0.00**). GL `1010 Cash in Transit` is **$56,126,000.00**; GL `1150 Risk Reserve Receivable` is **$160,000.00**.
+
+---
+
+## 4. Carrier SLA Audit & Supply Chain Leakage
+
+### 4.1 Carrier SLA Fault Decomposition
+Auditing 621,849 scans decomposes DHL's 19.18% failure claim:
+
+| Carrier | Total Pkgs | Headline Exceptions | Headline Failure Rate | Genuine Carrier Faults | Genuine Fault Rate | Merchant Defects | Non-Carrier Root Cause |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **DHL** | 20,000 | 3,836 | 19.18% | **270** | **1.35%** | **3,566 (17.83%)** | Internal bug `DEP-2025-07-02-ADDR-V2` |
+| **FedEx** | 41,905 | 634 | 1.51% | 634 | 1.51% | 0 (0.00%) | Carrier liability (lost/damaged) |
+| **UPS** | 31,596 | 476 | 1.51% | 476 | 1.51% | 0 (0.00%) | Carrier liability (lost/damaged) |
+| **USPS** | 31,499 | 465 | 1.48% | 465 | 1.48% | 0 (0.00%) | Carrier liability (lost/damaged) |
+
+**Verdict: REJECT TERMINATION.** DHL genuine fault is **1.35%** (98.65% reliability), beating FedEx/UPS (1.51%). 92.96% of DHL exceptions trace to internal bug `DEP-2025-07-02-ADDR-V2`. Termination triggers an **$8.5M penalty**.
+
+### 4.2 Post-Pack Cancellation Leakage
+WMS scans confirm **100% (640/640) of post-pack cancellations were delivered** (`POST_PACK_DELIVERED_NO_RETURN`). On credited NET30 orders ($1.92M invoices), direct leakage is **$1,570,560.00** ($1,472,000.00 COGS + $98,560.00 freight). Fix: WMS lock post `PACK_VERIFIED`.
+
+---
+
+## 5. Customer Retention & Account Hierarchy Analysis
+
+Lucas Ferreira's 3.8% retention metric reflects transient browser cookies, not B2B accounts:
+
+| Identity Level | Population | Repeat / Retained | Retention Rate | Definition & Strategic Context |
+| :--- | :--- | :--- | :--- | :--- |
+| **Session Cookie Token** | 385,000 mapping (106,635 orders) | 14,630 mapping (16,590 orders) | 3.80% (15.56% orders) | Ephemeral browser touchpoints. |
+| **Authorized Buyer User** | 33,389 | 23,634 | **70.78%** | Procurement logins across subsidiary units. |
+| **Purchasing Subsidiary** | 8,496 | 8,493 | **99.96%** | Operating corporate accounts. |
+| **Ultimate Parent Entity** | 650 | 650 orders (615 retained) | **100.0% repeat / 94.62% NDR** | D&B parent entity ($40M to $49.92M, 124.80% NDR). |
+
+Top 5 Strategic accounts generate **$55,923,485.99** (47.64% of spend), expanding at 119.69% NDR. 100% of parent accounts repeated in 2025; cohort decay is right-censorship of young cookies.
+
+---
+
+## 6. Voucher Unit Economics & Commercial Guardrails
+
+Analysis of 125,130 orders shows stark voucher divergence:
+
+| Voucher Program | Orders | Net Revenue | COGS | Freight | Contribution Margin (CM) | Avg Margin | Margin % |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Promo (`SAVE5`)** | 85,550 | $53,438,799.66 | $32,373,857.80 | $2,012,551.33 | **+$19,052,390.53** | +$222.70 | 35.65% |
+| **Appeasement (`APPEASE30`)** | 35,000 | $10,150,000.00 | $7,735,000.00 | $525,000.00 | **+$1,890,000.00** | +$54.00 | 18.62% |
+| **Baseline (No Voucher)** | 2,480 | $33,283,000.00 | $21,858,766.63 | $326,400.00 | **+$11,097,833.37** | +$4,474.93 | 33.34% |
+| **Stacked (`STACKED20-MSA`)** | 1,200 | $20,520,000.00 | $22,230,000.00 | $6,000,000.00 | **-$7,710,000.00** | **-$6,425.00** | **-37.57%** |
+| **Warranty (`WARRANTY100`)** | 900 | $0.00 | $36,000.00 | $25,379.43 | **-$61,379.43** | -$68.20 | -inf |
+| **Company Total** | **125,130** | **$117,391,799.66** | **$84,233,624.43** | **$8,889,330.76** | **+$24,268,844.47** | **+$193.95** | **20.67%** |
+
+### 6.1 The STACKED20-MSA Loophole & Guardrails
+- **The STACKED20-MSA Loophole:** 1,200 server orders stacked 20% promo vouchers ($6.84M) on 20% MSA discounts ($6.84M). Priced at $17,100 against $18,525 COGS and $5,000 freight, this lost **-$6,425.00/order** and bled **-$7,710,000.00 EBITDA**.
+- **Guardrails:** `APPEASE30` buyers repeat at **85.79%** (vs 55.35%) and profit +$1.89M. Program expansion requires two rules:
+  1. **Anti-Stacking Rule:** Hard block prohibiting promo vouchers on MSA accounts (`msa_discount_pct > 0`). Kill `STACKED20-MSA`.
+  2. **Basket Minimums:** Minimum order of **$300** for $30 vouchers (max 10% discount); exclude servers/storage.
+  3. **EBITDA Impact:** Stopping stacked discounts recovers **+$6.84M revenue** and stops **$7.71M losses** (+**$6.84M to +$7.71M annually**).
+
+---
+
+## 7. Prioritized Operational Recommendations
+
+| # | Action | Owner | Timeline | Quantified Financial Impact |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | **Enforce ERP Anti-Stacking:** Block promo discounts on MSA contracts; kill STACKED20-MSA. | VP Growth & CFO | Immediate | **+$6.84M to +$7.71M EBITDA** gain. |
+| **2** | **Halt DHL Termination:** Retain contract; hotfix bug `DEP-2025-07-02-ADDR-V2`. | VP Logistics & CTO | 48 Hours | **Avoids $8.5M Penalty**; fixes 3,566 shipments/yr. |
+| **3** | **Deploy WMS Dispatch Lock:** Block Support cancellations post `PACK_VERIFIED`. | VP Logistics & VP CX | 14 Days | **+$1,570,560.00 Recovery** of delivered inventory. |
+| **4** | **Re-architect BI Mart:** Deprecate `bi_executive_daily_recon`; build on primary GL/ERP tables. | Audit Chair & CFO | 30 Days | **Eliminates $33.35M Error**; aligns dashboards to GL. |

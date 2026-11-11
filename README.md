@@ -1,131 +1,134 @@
-# Aura Enterprise Technologies — Enterprise Cross-System Audit & Analytics Challenge
+# Meridian Enterprise Technologies — Enterprise Forensic Data Audit & Adversarial Challenge
 
-**Role:** Senior Data Analyst / Lead Analytics Engineer (B2B Assessment · Level 1 Take-Home)  
-**Format:** Asynchronous repository assessment — DuckDB + SQL / Python + Forensic Executive Memo  
-**Time guidance:** You have **24 hours** from the moment you accept your assignment to submit your public GitHub repository.
-
----
-
-## 1. Your Mandate
-
-You are engaged as the independent Lead Analytics Engineer by the Audit Committee of the Board of Directors at **Aura Enterprise Technologies**. Aura is a high-growth B2B enterprise marketplace operating across four decoupled systems of record:
-1. **Billing & Payment Processor (Stripe):** Event-level authorizations, captures, processing fee schedules, rolling 5% risk reserves, and dispute clawbacks (`billing_events`).
-2. **Accrual ERP & Financial Ledger (NetSuite):** Sales order bookings, line-item cancellations, ASC 606 revenue recognition status, and returns (`erp_orders`, `erp_order_lines`).
-3. **Logistics Telematics & WMS (Manhattan Associates):** Distribution center allocation, multi-facility split shipments, and real-time barcode scan streams (`wms_fulfillment`, `wms_package_scans`).
-4. **Customer Master Data Management (MDM):** Corporate conglomerate hierarchies, subsidiary accounts, authorized procurement buyer profiles, and cross-session identity mappings (`customer_accounts`, `buyer_profiles`, `customer_identity_mappings`).
-
-The executive leadership team is deadlocked over conflicting operational hypotheses and financial discrepancies. Finance, Logistics, Growth, and Customer Support are operating from isolated systems, producing contradictory metrics:
-
-- **Elena Vance (Chief Financial Officer):** Reports a multi-million-dollar gap between gross payment gateway charges and NetSuite recognized revenue, alongside a severe operating cash shortfall. She suspects payment processor webhook failures or merchant fraud.
-- **Marcus Carvalho (VP Logistics & Supply Chain):** Claims on-time delivery SLA exceeds 97% based on carrier scan telematics, and asserts Customer Support is prematurely refunding orders while packages are already in flight.
-- **Sarah Lin (VP Customer Experience):** Claims delivery delays and hardware return friction are driving customer churn, arguing for expanded customer appeasement vouchers.
-- **Lucas Ferreira (VP Marketing & Enterprise Growth):** Claims enterprise retention has collapsed to near zero, reporting that over 90% of checkout sessions never return.
-- **Vikram Patel (Chief Legal Officer & Audit Chair):** Demands a GAAP ASC 606 compliant revenue reconciliation down to $0.00, an audit of inventory leakage from zombie dispatches, and margin guardrails on all commercial policies.
-
-Your mission is to query `enterprise_audit.duckdb`, uncover the cross-system root causes, prove the mathematical truth, and author a definitive decision memo for the Board.
-
-**Modern Tooling Encouraged:** You are welcome and expected to use modern programming languages, SQL environments, and AI coding assistants (Claude, ChatGPT, Cursor, Copilot). Your work is evaluated on the analytical rigor, defensive relational modeling, and executive clarity of your code and decision memo.
+**Role:** Senior / Lead Analytics Engineer, Principal Financial Data Analyst, Forensic Analytics Lead  
+**Deliverable:** Asynchronous GitHub Assessment — Reproducible DuckDB Pipeline + Executive Decision Memo (`EXECUTIVE_MEMO.md`)  
+**Database Horizon:** 13 Calendar Months (December 1, 2024 through December 31, 2025; ~2.55M rows across 11 tables)
 
 ---
 
-## 2. Package Contents
+## 1. Executive Summary of Audited Findings
 
-| Asset | Purpose |
-| :--- | :--- |
-| `enterprise_audit.duckdb` | The complete enterprise database (8 tables, ~1.8M total records across 15 months: Oct 2024 – Dec 2025). |
-| `README.md` | This assignment specification and candidate guide. |
-| `schema_dictionary.md` | Detailed column definitions, data types, grains, foreign keys, and temporal zones for all 8 tables. |
-| `STAKEHOLDER_NOTES.md` | Internal Slack / Email memo thread among the C-suite. Treat all executive claims as hypotheses to audit, not verified facts. |
-| `analysis/starter_query.sql` | Minimal SQL query template for the DuckDB CLI. |
-| `analysis/starter_query.py` | Minimal Python script template (`duckdb` + `pandas`). |
-| `requirements.txt` | Python environment dependencies. |
-| `.devcontainer/devcontainer.json` | VS Code / GitHub Codespaces container configuration. |
+An independent cross-system forensic audit was conducted on `enterprise_forensic_audit.duckdb` across five decoupled operational systems:
+1. **Billing & Payment Gateway (Stripe / Treasury):** `payment_events`, `foreign_exchange_rates`, `treasury_settlements`
+2. **Accrual ERP & Financial Ledger (NetSuite):** `erp_order_headers`, `erp_order_line_items`, `erp_general_ledger_entries`
+3. **Logistics Telematics & 3PL (Manhattan WMS & EDI 214):** `wms_fulfillment_consignments`, `carrier_telematics_scans`
+4. **Customer Identity Graph (Rudderstack / D&B):** `customer_entity_mappings`, `corporate_tax_entities`
+5. **Corporate Finance Reporting Mart:** `bi_executive_daily_recon`
+
+### Audited Scorecard
+
+| Stakeholder & Dispute | Claimed Metric | Audited Ground Truth | Root Cause & Resolution |
+| :--- | :--- | :--- | :--- |
+| **Elena Vance (CFO):** Revenue Gap & Cash Shortfall | Charges exceed rev by >$4M; ~$2.3M missing cash; suspects fraud | **$58,420,500.00** gross ties to **$54,379,002.43** rec rev ($0.00 unrec) & **$56,126,000.00** cash ($0.00 unrec) | **Zero fraud or dropped transactions.** Gap is 100% ASC 606 delivery timing ($3.60M in-transit/pending) & disputes ($442.25K). Cash delta is fees ($1.58M), reserves ($160K net), disputes ($465.5K), FX ($86.55K). |
+| **Marcus Carvalho (Logistics):** Terminate DHL | 19.18% failure rate vs 95% SLA | Headline: **19.18%** (3,836 pkgs). Carrier fault: **1.35%** (270 pkgs). Merchant bug: **17.83%** (3,566 pkgs) | **Refute termination.** 3,566 failures trace to internal bug `DEP-2025-07-02-ADDR-V2` (postcode truncation & omitted EORI). DHL genuine reliability is 98.65%. Prevents **$8.5M wrongful termination penalty**. |
+| **Marcus Carvalho (Logistics):** Post-Pack Cancellations | Support cancels post-pack; inventory lost | **640 orders** cancelled post-pack; **100% (640/640) delivered** | **Confirmed $1,570,560.00 leakage** ($1,472,000.00 COGS + $98,560.00 freight) on credited NET30 orders. Fix: WMS dispatch lock. |
+| **Lucas Ferreira (Growth):** 3.8% Retention Collapse | 385K tokens, 3.8% return; Q3–Q4 repeat ~0% | Logo retention: **94.62%** (615/650 parents). NDR: **124.80%** ($40M to $49.92M). Repeat: **100%** (parents), **99.96%** (subs) | **Refute collapse.** Lucas audited transient browser cookies, not accounts. Enterprise spend expanded +24.8% YoY (124.8% NDR). |
+| **Sarah Lin (CX) & Lucas:** Voucher Expansion | Blanket voucher expansion across escalated tickets | `APPEASE30`: **+$1,890,000.00** margin (+$54/order; 85.8% repeat). `STACKED20-MSA`: **-$7,710,000.00** EBITDA loss | **Conditional approval.** Expand `APPEASE30` with guardrails ($300 min). Ban promo stacking on MSA contracts to save **+$6.84M to +$7.71M** EBITDA. |
 
 ---
 
-## 3. Required GitHub Deliverables
-
-Your final deliverable is a **single public GitHub repository** containing:
+## 2. Repository Structure
 
 ```
-├── README.md                     # Instructions to reproduce analysis (setup + run commands)
-├── analysis/                     # Reproducible SQL / Python scripts reproducing all figures
-│   ├── audit_master.py           # Master audit pipeline & invariant assertion engine ($0.00 variance)
-│   ├── asc606_revenue_bridge.sql # Pure SQL ASC 606 revenue bridge & treasury cash waterfall
-│   ├── logistics_and_leakage_audit.sql # Pure SQL SLA, zombie dispatches, lost claims & RMA scrap
-│   ├── retention_and_survival_analysis.py # Entity resolution, cohort matrices & Kaplan-Meier curves
-│   ├── unit_economics_and_guardrails.py   # Unit economics, voucher stress test & MOV thresholds
-│   ├── starter_query.py          # Quick inspection script
-│   └── starter_query.sql         # DuckDB CLI starter query
-├── EXECUTIVE_MEMO.md             # C-level decision briefing (max 1,500 words)
-└── ai_sessions/                  # Raw AI conversation transcripts, exported logs, and session notes
-    ├── audit_engineering_session.md # Formatted engineering transcript & prompt steering log
-    └── session_transcript_raw.jsonl # Raw JSONL session log
+├── README.md                     # This comprehensive reproduction guide and executive audit summary
+├── EXECUTIVE_MEMO.md             # C-suite decision briefing (1,488 words; max 1,500 words)
+├── analysis/                     # Reproducible SQL & Python audit pipeline
+│   ├── run_all_audits.py         # Master Python analysis pipeline reproducing all figures
+│   ├── forensic_audit.sql        # Complete pure SQL audit script runnable in DuckDB CLI
+│   ├── verify_invariants.py      # Automated invariant test suite (31 mathematical proofs)
+│   ├── starter_query.py          # Starter table inspection & inventory script
+│   └── starter_query.sql         # Starter SQL exploration script
+├── ai_sessions/                  # Raw AI conversation logs & session transcript
+│   ├── session_transcript.md     # Chronological log of AI prompts, queries, and technical steering
+│   ├── transcript_full.jsonl     # Complete raw JSONL session transcript
+│   └── transcript.jsonl          # Compact raw JSONL session transcript
+├── schema_dictionary.md          # Database schema documentation across all 11 tables
+├── STAKEHOLDER_NOTES.md          # Internal C-suite confidential memo thread
+├── requirements.txt              # Python environment dependencies
+└── .devcontainer/                # Development container configuration
 ```
-
-### 3.1 `analysis/` — Reproducible Analysis Scripts
-- Every metric, percentage, and dollar figure cited in `EXECUTIVE_MEMO.md` must be directly reproducible by running code in this directory.
-- Code must execute top-to-bottom against `enterprise_audit.duckdb` without manual intervention or hardcoded adjustments.
-- Use defensive relational modeling: guard against Cartesian join multiplicity on split shipments and payment events.
-
-### 3.2 `EXECUTIVE_MEMO.md` — Board & C-Suite Decision Briefing (Max 1,500 words)
-Address your memo to the Board Audit Committee and executive team (CEO, Elena Vance, Marcus Carvalho, Sarah Lin, Lucas Ferreira, Vikram Patel). Structure your memo into five core sections:
-1. **Executive Summary & Ground-Truth Scorecard:** High-level executive synthesis answering each stakeholder's hypothesis with empirical findings.
-2. **Financial Waterfall & Revenue Reconciliation:** Complete ASC 606 bridge table reconciling gross payment charges to recognized GAAP revenue and net liquid cash deposits down to $0.00 variance.
-3. **Supply Chain Leakage & Logistics SLA Audit:** True national and facility delivery SLA, root-cause analysis of zombie dispatches (post-pack cancellations delivered anyway), and lost-in-transit exposure.
-4. **Customer Master Entity Retention & Survival Analysis:** B2B parent-subsidiary retention curves controlling for right-censoring in recent cohorts.
-5. **Causal Policy Interventions & Margin Guardrails:** Empirical evaluation of customer appeasements with contribution margin guardrails and minimum order value (MOV) thresholds.
-
-### 3.3 `ai_sessions/` — Raw AI Tooling Transcripts
-Store raw, unedited conversation logs, transcripts, or session exports from your AI assistant here.
-- If using **Claude Code**: export the CLI session transcript or session markdown.
-- If using **Cursor**: save your Composer / chat session export or markdown copy.
-- If using **ChatGPT / Copilot**: include the shared link or exported conversation log.
-
-Top analytics engineers treat AI assistants as high-speed query drafters while applying defensive human skepticism. Your session transcripts provide evidence of your analytical direction, prompt steering, and error correction during the Level 2 live defense.
 
 ---
 
-## 4. How to Reproduce the Analysis
+## 3. How to Reproduce All Results
 
-### Quickstart — Master Audit Suite (Recommended)
-To execute the complete end-to-end audit, assert mathematical invariants down to $0.00, and print the executive scorecard and waterfall tables:
+### 3.1 Environment Setup
 
 ```bash
-# Set up virtual environment
+# Clone the repository
+git clone https://github.com/anujhsrsaini/ecommerce-audit-takehome.git
+cd ecommerce-audit-takehome
+
+# Set up virtual environment and install dependencies
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Run the master audit suite (validates all invariants & prints executive scorecard)
-python analysis/audit_master.py
 ```
 
-### Modular Domain Analysis Scripts
+### 3.2 Run the Complete Python Audit Pipeline
 
-Each domain investigation is isolated in its own dedicated, reproducible script:
+To execute the top-to-bottom analysis pipeline that reproduces every scorecard metric, bridge table, carrier decomposition, retention matrix, and voucher economics cited in `EXECUTIVE_MEMO.md`:
 
-1. **Master Invariant & ASC 606 Waterfall:**
-   ```bash
-   python analysis/audit_master.py
-   ```
-2. **Customer Entity Graph, Cohort Retention & Kaplan-Meier Survival Analysis:**
-   ```bash
-   python analysis/retention_and_survival_analysis.py
-   ```
-3. **Unit Economics, Appeasement Stress-Testing & MOV Thresholds:**
-   ```bash
-   python analysis/unit_economics_and_guardrails.py
-   ```
-4. **Pure SQL Audits (DuckDB):**
-   ```bash
-   # Run GAAP ASC 606 Revenue Bridge & Treasury Reserve Waterfall
-   python3 -c "import duckdb; con = duckdb.connect('enterprise_audit.duckdb', read_only=True); [print(con.execute(s).df().to_string(index=False), '\n') for s in open('analysis/asc606_revenue_bridge.sql').read().split(';') if s.strip()]"
+```bash
+python3 analysis/run_all_audits.py
+```
 
-   # Run Logistics SLA, Zombie Dispatches, Carrier Claims & RMA Scrap
-   python3 -c "import duckdb; con = duckdb.connect('enterprise_audit.duckdb', read_only=True); [print(con.execute(s).df().to_string(index=False), '\n') for s in open('analysis/logistics_and_leakage_audit.sql').read().split(';') if s.strip()]"
-   ```
-5. **Starter Queries:**
-   ```bash
-   python analysis/starter_query.py
-   ```
+### 3.3 Verify Mathematical Invariants (31 Automated Proofs)
+
+To run the automated verification suite confirming that all accounting equations, GL double-entry balances, bridge tables, and operational invariants hold down to **$0.00 variance**:
+
+```bash
+python3 analysis/verify_invariants.py
+```
+
+### 3.4 Run the Pure SQL Audit Script (DuckDB CLI)
+
+To execute the complete analysis using native DuckDB SQL:
+
+```bash
+duckdb enterprise_forensic_audit.duckdb -f analysis/forensic_audit.sql
+```
+
+---
+
+## 4. Key Methodological Insights & System Truths
+
+### 4.1 Revenue Recognition Bridge (ASC 606)
+- **Gross Gateway Charges:** $58,420,500.00 across 108,231 prepaid credit card orders (`CREDIT_CARD_PREPAID`).
+- **Timing Deductions:** Under ASC 606, revenue cannot be recognized until performance obligations are satisfied via customer delivery. At period close, $1,821,953.84 was in warehouse staging (`PENDING_DELIVERY`), and $1,777,293.73 was on carrier trucks in transit (`PENDING_IN_TRANSIT`).
+- **Dispute Deductions:** $442,250.00 was reversed due to chargebacks (`REVERSED_DISPUTE`).
+- **Recognized Delivered Revenue:** Exactly $54,379,002.43. Unexplained variance: **$0.00**.
+- **Total Company Recognized Revenue:** Across all payment terms (including B2B invoicing: NET30 $16.30M, NET60 $20.52M, Wire $14.15M), total recognized delivered revenue is **$105,341,799.66** (total invoiced bookings: $117,391,799.66).
+
+### 4.2 Treasury Cash Waterfall & GL Balance
+- **Cash Deductions:** Gross cleared funds ($58,420,500.00) minus fees ($1,582,450.00) minus rolling risk reserve hold ($1,280,000.00) plus prior reserve release ($1,120,000.00) minus dispute clawbacks ($465,500.00) minus FX drift ($86,550.00) = **$56,126,000.00** net liquid operating cash in Barclays Operating Account ****4821.
+- **Cash Shortfall:** The perceived ~$2.3M shortfall is exactly **$2,294,500.00** ($1.58M fees + $160K net reserve + $465.5K disputes + $86.55K FX drift). Unexplained variance: **$0.00**.
+- **GL Double-Entry Balance:** All 831,245 journal entries in `erp_general_ledger_entries` balance to **$0.00** ($265,397,974.09 debits = $265,397,974.09 credits). GL Account `1010 Cash in Transit` net debit is exactly $56,126,000.00.
+
+### 4.3 Carrier SLA Audit & Scan Decomposition
+- **Headline vs Reality:** Marcus Carvalho observed a 19.18% headline exception rate on DHL (3,836 of 20,000 consignments).
+- **Root Cause Decomposition:** Scan-by-scan telematics analysis revealed that 3,566 consignments (92.96% of exceptions, 17.83% of all shipments) were caused by Meridian's internal software deployment `DEP-2025-07-02-ADDR-V2`, which truncated postal codes (`ERR_POSTCODE_TRUNCATED`, 1,832 consignments) and omitted customs EORI identifiers (`ERR_CUSTOMS_EORI_MISSING`, 1,734 consignments).
+- **Genuine Carrier Liability:** Only 270 consignments were genuine carrier faults (`ERR_CARRIER_LOST` = 194, `ERR_CARRIER_DAMAGED` = 76), giving DHL a **1.35% genuine failure rate** (98.65% reliability). DHL outperformed FedEx (1.51%), UPS (1.51%), and USPS (1.48%). Terminating DHL would trigger an unjustified **$8.5M early-termination liability**.
+
+### 4.4 Post-Pack Cancellation Leakage
+- **Scope & Evidence:** 640 orders were cancelled by Customer Support under `CUSTOMER_REQUEST_POST_PACK` after carton packaging. WMS telematics confirm that **100% (640/640) were dispatched and DELIVERED** (`POST_PACK_DELIVERED_NO_RETURN`).
+- **Direct P&L Loss:** All 640 orders were NET30 terms credited in ERP ($1.92M credited invoices). Direct leakage totaled **$1,570,560.00** ($1,472,000.00 inventory COGS + $98,560.00 freight).
+
+### 4.5 Customer Retention & Identity Resolution
+- **Measurement Bias:** Lucas Ferreira queried raw browser cookie tokens (`customer_entity_mappings.session_cookie_token`, 385,000 tokens, 3.80% returning), confusing ephemeral browser touchpoints with corporate clients.
+- **Enterprise Account Reality:** Audited at the ultimate parent conglomerate level (`corporate_tax_entities`), logo retention is **94.62%** (615 of 650 parent accounts retained) and Net Revenue Retention (NDR) is **124.80%** ($40.0M base expanding to $49.92M current). Top 5 Strategic accounts represent 47.64% of total spend ($55.92M) and expanded at 119.69% NDR.
+
+### 4.6 Voucher Unit Economics & Anti-Stacking Guardrails
+- **The Loophole:** 1,200 enterprise server orders stacked a 20% promo voucher (`STACKED20-MSA`, $6.84M) on top of pre-negotiated 20% MSA discounts ($6.84M). Priced at $17,100 against $18,525 COGS and $5,000 freight, this burned **-$6,425.00 per order**, draining **$7,710,000.00 in negative contribution margin** directly into the 5 largest accounts.
+- **Appeasement Efficacy:** `APPEASE30` generated **+$1,890,000.00 in profit** (+18.62% margin, $54/order) on small consumables ($320 list), with appeased buyers exhibiting an **85.79% repeat purchase rate** vs 55.35% for non-appeased buyers.
+- **Policy Guardrails:** Enforcing strict anti-stacking rules in NetSuite/checkout and establishing a $300 minimum order threshold immediately recovers **+$6.84M in revenue** and eliminates **$7.71M in losses**, improving annual EBITDA by **+$6.84M to +$7.71M**.
+
+### 4.7 Corporate Finance BI Reporting Mart Defect
+- `bi_executive_daily_recon` reported $138,687,597.30 in "certified net recognized revenue" and 125,933 rows. Primary ERP records prove total recognized revenue is $105,341,799.66 across 114,777 lines.
+- **Root Cause:** Corporate Finance built the BI mart by joining order line items with fulfillment consignments without aggregating to order grain, producing fan-out duplication on multi-consignment / multi-facility orders. The reporting mart must be deprecated and rebuilt on primary GL/ERP tables.
+
+---
+
+## 5. Contact & Audit Representation
+
+This audit was conducted independently by the Lead Analytics Engineer & Forensic Data Auditor for the Board Audit Committee of Meridian Enterprise Technologies. All figures are fully reproducible from source code in `analysis/` against `enterprise_forensic_audit.duckdb`.
